@@ -1,2 +1,2 @@
-/resources/ccf/*
-!/resources/ccf
+resources/ccf/*
+src/__pycache__

@@ -9,6 +9,15 @@ from allensdk.core.structure_tree import StructureTree
 TREE = None
 VOLUME = None
 ANNOTATIONS = None
+CCF_TO_STC = None
+STC_TO_CCF = None
+
+# TODO: Code this function
+def _downloadCCF():
+    """
+    """
+
+    return
 
 def _loadAnnotations():
     """
@@ -21,6 +30,7 @@ def _loadAnnotations():
         raise Exception('Could not locate annotations file')
     global ANNOTATIONS
     ANNOTATIONS = np.load(annotationsFile)
+    ANNOTATIONS = np.swapaxes(ANNOTATIONS, 1, 2)
 
     return
 
@@ -35,6 +45,7 @@ def _loadVolume():
         raise Exception('Could not locate annotations file')
     global VOLUME
     VOLUME = np.load(volumeFile)
+    VOLUME = np.swapaxes(VOLUME, 1, 2)
 
     return
 
@@ -48,6 +59,16 @@ def _loadAllenStructureTree():
     structureGraph = StructureTree.clean_structures(structureGraph)  
     global TREE
     TREE = StructureTree(structureGraph)
+
+    return
+
+def loadAllData():
+    """
+    """
+
+    _loadVolume()
+    _loadAnnotations()
+    _loadAllenStructureTree()
 
     return
 
@@ -65,13 +86,6 @@ def translateBrainAreaIdentities(ids):
 
     return labels
 
-# TODO: Code this function
-def downloadCommonCoordinateFrameworkData():
-    """
-    """
-
-    return
-
 def solveForElectrodeEndpoint(
     insertionPoint,
     insertionDepth=0,
@@ -83,9 +97,6 @@ def solveForElectrodeEndpoint(
 
     Notes
     -----
-    The insertionPoint argument must be a tuple or array like object that
-    specifies the stereotaxic coordinates of the insertion point (AP, ML, DV).
-
     The insertionAngle argument specifies the angle of insertion such that 0
     degrees means the probe is inserted purely left-to-right and 180 degrees
     means the probe is inserted purely right-to-left.
@@ -187,18 +198,16 @@ def estimateSpikeDepths(workingDirectory):
 
     return templateDepths, spikeDepths
 
-def _computeTransformMatrix(
-    inverse=False
-    ):
+def defineTransformationMatrices(resolution=10):
     """
     Compute the transform that converst CCF voxels to stereotaxic coordinates
     (relative to bregma)
     """
 
     # Define transformation constants
-    bregma = [570.5, 520, 44]  # [ML, AP, DV]
-    scale = np.array([0.952, -1.031, 0.885]) / 100  # Scaling factors for [ML, AP, DV]
-    rotation = np.radians(5)  # Rotation angle in radians
+    bregma = np.array([520, 570.5, 44])
+    scale = np.array([-1.031, 0.952, 0.885]) / (1000 / resolution)
+    theta = np.radians(5)  # Rotation angle in radians
 
     # Translation matrix to center at bregma
     T = np.eye(4)
@@ -207,78 +216,105 @@ def _computeTransformMatrix(
     # Scaling matrix to adjust units and reflection
     S = np.diag(np.concatenate([scale, [1]]))
 
-    # Rotation matrix for nose-up tilt
+    # Rotation around the y (ML) axis
     R = np.array([
-        [1, 0, 0, 0],
-        [0, np.cos(rotation), -np.sin(rotation), 0],
-        [0, np.sin(rotation), np.cos(rotation), 0],
-        [0, 0, 0, 1]
+        [np.cos(theta), 0, -np.sin(theta), 0],
+        [0,             1,  0,             0],
+        [np.sin(theta), 0,  np.cos(theta), 0],
+        [0,             0,  0,             1],
     ])
 
-    #
-    if inverse:
-        R = R.T
-        S = np.diag(np.concatenate([1 / scale, [1]]))
-        T[:, 3] *= -1
-        F = T @ S @ R
+    # Define the forward (F) transformation
+    global CCF_TO_STC
+    CCF_TO_STC = T @ S @ R
+    CCF_TO_STC = R @ S @ T
 
-    else:
-        F = R @ S @ T
+    # Define the inverse (B) transformation
+    global STC_TO_CCF
+    R = R.T
+    S = np.diag(np.concatenate([1 / scale, [1]]))
+    T[:, 3] *= -1
+    STC_TO_CCF = T @ S @ R
 
-    return F
+    return
 
-def applyTransform(points, source='ccf'):
+def transform(points, source='ccf'):
     """
     Apply transformation to coordinates
 
     Keywords
     --------
     source: str
-        Flag which specifies the source space, ccf for the common coordinate
-        framework, or st for stereotaxic
+        Flag which specifies the source space, 'ccf' for the common coordinate
+        framework, or 'stc' for stereotaxic coordinates
     """
 
-    # Determine the direction of the transformation
+    #
     if source == 'ccf':
-        inverse = False
-    elif source == 'st':
-        inverse = True
-    T = _computeTransformMatrix(inverse)
+        global CCF_TO_STC
+        if CCF_TO_STC is None:
+            defineTransformationMatrices()
+        tform = CCF_TO_STC
+    elif source == 'stc':
+        global STC_TO_CCF
+        if STC_TO_CCF is None:
+            defineTransformationMatrices()
+        tform = STC_TO_CCF
 
     #
     nPoints = points.shape[0]
     homogenousPoints = np.hstack((points, np.ones((nPoints, 1))))
 
     # Apply the affine transformation matrix
-    transformedHomogenousPoints = homogenousPoints @ T.T
+    transformedHomogenousPoints = homogenousPoints @ tform.T
 
     # Extract the transformed [ML, AP, DV] coordinates
     transformedPoints = transformedHomogenousPoints[:, :3]
 
     return transformedPoints
 
-def estimateLocationForAllUnits(
+def localizeUnits(
     workingDirectory,
-    electrodePositionFile,
+    electrodePositionFile=None,
+    insertionPoint=None,
+    insertionDepth=None,
+    insertionAngle=None,
+    skullThickness=0.3,
     resolution=10,
     ):
     """
-    Estimate the CCF coordinates for all units in a recording based on electrode
-    position and channel mapping
     """
 
     #
     if type(workingDirectory) == str:
         workingDirectory = pl.Path(workingDirectory)
 
-    # Estimate the distance from the tip of the electrode for each unit
-    templateDepths, spikeDepths = estimateSpikeDepths(workingDirectory)
+    #
+    if electrodePositionFile is not None:
+        electrodePosition = io.loadmat(electrodePositionFile)['probe_positions_ccf'][0][0]
+        B = electrodePosition[:, 0]
+        A = electrodePosition[:, 1]
 
-    # Coordinates from the Allen CCF with the shape 3 (AP, DV, ML) x 2 (electrode tip, electrode insertion)
-    electrodePosition = io.loadmat(electrodePositionFile)['probe_positions_ccf'][0][0]
-    tipPosition = electrodePosition[:, 0]
-    entryPosition = electrodePosition[:, 1]
-    electrodeVector = entryPosition - tipPosition
+    else:
+        if insertionPoint is None:
+            raise Exception()
+        if insertionDepth is None:
+            raise Exception()
+        if insertionAngle is None:
+            raise Exception()
+        A = np.array(insertionPoint)
+        A[2] += skullThickness
+        B = solveForElectrodeEndpoint(
+            A,
+            insertionDepth,
+            insertionAngle
+        )
+        AB = np.vstack([A, B])
+        AB = transform(AB, source='stc')
+        A, B = map(np.ravel, np.split(AB, 2, axis=0))
+
+    #
+    electrodeVector = A - B
     scalingFactor = electrodeVector / np.linalg.norm(electrodeVector)
 
     # Load the spike clusters data
@@ -286,11 +322,14 @@ def estimateLocationForAllUnits(
     if spikeClustersFile.exists():
         spikeClusters = np.load(spikeClustersFile)
 
+    # Estimate the distance from the tip of the electrode for each unit
+    templateDepths, spikeDepths = estimateSpikeDepths(workingDirectory)
+
     # CCF coordinates for each unit with shape N units x 3 (AP, DV, ML)
     unitCoordinates = list()
     for spikeCluster in np.unique(spikeClusters):
         spikeDepth = np.mean(spikeDepths[spikeClusters == spikeCluster])
-        unitCoordinate = tipPosition + ((spikeDepth / resolution) * scalingFactor)
+        unitCoordinate = B + ((spikeDepth / resolution) * scalingFactor)
         unitCoordinates.append(unitCoordinate)
     unitCoordinates = np.array(unitCoordinates)
 
@@ -305,15 +344,8 @@ def estimateLocationForAllUnits(
         brainStructureIdentities.append(id)
     brainStructureIdentities = np.array(brainStructureIdentities)
 
-    # Re-order axes from AP, DV, ML to ML, AP, DV (necessary for transform)
-    unitCoordinates = np.vstack([
-        unitCoordinates[:, 2],
-        unitCoordinates[:, 0],
-        unitCoordinates[:, 1]
-    ]).T
-
     # Convert from CCF voxels to stereotaxic coordinates
-    unitCoordinatesTransformed = applyTransform(
+    unitCoordinatesTransformed = transform(
         unitCoordinates,
         source='ccf'
     )
