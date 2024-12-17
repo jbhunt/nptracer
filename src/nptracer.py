@@ -1,4 +1,6 @@
+import gc
 import nrrd
+import requests
 import numpy as np
 import pathlib as pl
 from scipy import io
@@ -12,10 +14,103 @@ ANNOTATIONS = None
 CCF_TO_STC = None
 STC_TO_CCF = None
 
-# TODO: Code this function
-def _downloadCCF():
+def downloadCCFDataFromAllenInstitute():
+    """
+    Download the Allen Brain Atlas Common Coordinate Framework volume and
+    annotations
+    """
+
+    #
+    dataFolder = pl.Path(__file__).parent.parent.joinpath('resources', 'ccf')
+    if dataFolder.exists() == False:
+        dataFolder.mkdir(parents=True)
+
+    #
+    print(f'Downloading annotations ...', end='\r')
+    url = 'https://osf.io/download/abhk3/'
+    response = requests.get(
+        url=url,
+        stream=True,
+    )
+    fp = dataFolder.joinpath('annotations.npy')
+    with open(fp, 'wb') as stream:
+        for chunk in response.iter_content(chunk_size=1024):
+            if chunk:
+                stream.write(chunk)
+    response.close()
+    print(f'Downloading annotations ... Done!', end='\n')
+
+    #
+    print(f'Downloading brain volume ...', end='\r')
+    url = 'https://osf.io/download/ywre6/'
+    response = requests.get(
+        url=url,
+        stream=True,
+    )
+    fp = dataFolder.joinpath('volume.npy')
+    with open(fp, 'wb') as stream:
+        for chunk in response.iter_content(chunk_size=1024):
+            if chunk:
+                stream.write(chunk)
+    response.close()
+    print(f'Downloading brain volume ... Done!', end='\n')
+
+    return
+
+def downloadCCFDataFromOSF():
     """
     """
+
+    #
+    dataFolder = pl.Path(__file__).parent.parent.joinpath('resources', 'ccf')
+    if dataFolder.exists() == False:
+        dataFolder.mkdir(parents=True)
+
+    #
+    print(f'Downloading annotations ...', end='\r')
+    url = 'http://download.alleninstitute.org/informatics-archive/current-release/mouse_ccf/annotation/ccf_2017/annotation_10.nrrd'
+    response = requests.get(
+        url=url,
+        stream=True,
+    )
+    fp = dataFolder.joinpath('annotations.nrrd')
+    with open(fp, 'wb') as stream:
+        for chunk in response.iter_content(chunk_size=1024):
+            if chunk:
+                stream.write(chunk)
+    response.close()
+
+    #
+    data, header = nrrd.read(fp)
+    fp = dataFolder.joinpath('annotations.npy')
+    np.save(fp, data)
+    del data
+    gc.collect()
+    print(f'Downloading annotations ... Done!', end='\n')
+
+    #
+    print(f'Downloading brain volume ...', end='\r')
+    url = 'https://download.alleninstitute.org/informatics-archive/current-release/mouse_ccf/average_template/average_template_10.nrrd'
+    response = requests.get(
+        url=url,
+        stream=True,
+    )
+    fp = dataFolder.joinpath('volume.nrrd')
+    with open(fp, 'wb') as stream:
+        for chunk in response.iter_content(chunk_size=1024):
+            if chunk:
+                stream.write(chunk)
+    response.close()
+
+    #
+    data, header = nrrd.read(fp)
+    fp = dataFolder.joinpath('volume.npy')
+    np.save(fp, data)
+    del data
+    gc.collect()
+    print(f'Downloading brain volume ... Done!', end='\n')
+
+    return
 
     return
 
@@ -250,12 +345,12 @@ def transform(points, source='ccf'):
     """
 
     #
-    if source == 'ccf':
+    if source.lower() == 'ccf':
         global CCF_TO_STC
         if CCF_TO_STC is None:
             defineTransformationMatrices()
         tform = CCF_TO_STC
-    elif source == 'stc':
+    elif source.lower() == 'stc':
         global STC_TO_CCF
         if STC_TO_CCF is None:
             defineTransformationMatrices()
@@ -275,10 +370,10 @@ def transform(points, source='ccf'):
 
 def localizeUnits(
     workingDirectory,
-    electrodePositionFile=None,
     insertionPoint=None,
     insertionDepth=None,
     insertionAngle=None,
+    trajectoryExplorerFile=None,
     skullThickness=0.3,
     resolution=10,
     ):
@@ -290,18 +385,18 @@ def localizeUnits(
         workingDirectory = pl.Path(workingDirectory)
 
     #
-    if electrodePositionFile is not None:
-        electrodePosition = io.loadmat(electrodePositionFile)['probe_positions_ccf'][0][0]
+    if trajectoryExplorerFile is not None:
+        electrodePosition = io.loadmat(trajectoryExplorerFile)['probe_positions_ccf'][0][0]
         B = electrodePosition[:, 0]
         A = electrodePosition[:, 1]
 
     else:
         if insertionPoint is None:
-            raise Exception()
+            raise Exception(f'Must specify insertion point')
         if insertionDepth is None:
-            raise Exception()
+            raise Exception('Must specify insertion deptth')
         if insertionAngle is None:
-            raise Exception()
+            raise Exception('Must specify insertion angle')
         A = np.array(insertionPoint)
         A[2] += skullThickness
         B = solveForElectrodeEndpoint(
