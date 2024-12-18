@@ -1,2 +1,4 @@
 resources/ccf/*
-src/__pycache__
+nptracer/__pycache__
+nptracer.egg-info
+build
