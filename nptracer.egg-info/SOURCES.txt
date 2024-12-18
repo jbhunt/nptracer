@@ -1,0 +1,8 @@
+README.md
+setup.py
+nptracer/__init__.py
+nptracer.egg-info/PKG-INFO
+nptracer.egg-info/SOURCES.txt
+nptracer.egg-info/dependency_links.txt
+nptracer.egg-info/requires.txt
+nptracer.egg-info/top_level.txt
