@@ -121,6 +121,7 @@ def _loadAnnotations():
     packagePath = pl.Path(__file__).parent.parent
     ccfPath = packagePath.joinpath('resources', 'ccf')
     annotationsFile = ccfPath.joinpath('annotations.npy')
+    import pdb; pdb.set_trace()
     if annotationsFile.exists() == False:
         raise Exception('Could not locate annotations file')
     global ANNOTATIONS
@@ -256,23 +257,23 @@ def getChannelPositionsForDenseConfig(
 
     return xy
 
-def estimateSpikeDepths(workingDirectory):
+def estimateSpikeDepths(kilosortOutputFolder):
     """
     Estimate the depth (distance from tip of electrode) of each spike
     """
 
     #
-    if type(workingDirectory) == str:
-        workingDirectory = pl.Path(workingDirectory)
+    if type(kilosortOutputFolder) == str:
+        kilosortOutputFolder = pl.Path(kilosortOutputFolder)
 
     # Load data
-    templateIndicesFile = workingDirectory.joinpath('spike_templates.npy')
+    templateIndicesFile = kilosortOutputFolder.joinpath('spike_templates.npy')
     if templateIndicesFile.exists():
         templateIndices = np.load(templateIndicesFile)
-    templatesFile = workingDirectory.joinpath('templates.npy')
+    templatesFile = kilosortOutputFolder.joinpath('templates.npy')
     if templatesFile.exists():
         templates = np.load(templatesFile)
-    channelPositionsFile = workingDirectory.joinpath('channel_positions.npy')
+    channelPositionsFile = kilosortOutputFolder.joinpath('channel_positions.npy')
     if channelPositionsFile.exists():
         channelDepths = np.load(channelPositionsFile)[:, 1]
 
@@ -293,7 +294,7 @@ def estimateSpikeDepths(workingDirectory):
 
     return templateDepths, spikeDepths
 
-def defineTransformationMatrices(resolution=10):
+def defineTransformationMatrices():
     """
     Compute the transform that converst CCF voxels to stereotaxic coordinates
     (relative to bregma)
@@ -301,7 +302,7 @@ def defineTransformationMatrices(resolution=10):
 
     # Define transformation constants
     bregma = np.array([520, 570.5, 44])
-    scale = np.array([-1.031, 0.952, 0.885]) / (1000 / resolution)
+    scale = np.array([-1.031, 0.952, 0.885]) / 100
     theta = np.radians(5)  # Rotation angle in radians
 
     # Translation matrix to center at bregma
@@ -311,7 +312,7 @@ def defineTransformationMatrices(resolution=10):
     # Scaling matrix to adjust units and reflection
     S = np.diag(np.concatenate([scale, [1]]))
 
-    # Rotation around the y (ML) axis
+    # Rotation around the second axis (ML)
     R = np.array([
         [np.cos(theta), 0, -np.sin(theta), 0],
         [0,             1,  0,             0],
@@ -319,17 +320,17 @@ def defineTransformationMatrices(resolution=10):
         [0,             0,  0,             1],
     ])
 
-    # Define the forward (F) transformation
+    # Define the transformation
     global CCF_TO_STC
     CCF_TO_STC = T @ S @ R
-    CCF_TO_STC = R @ S @ T
 
-    # Define the inverse (B) transformation
+    # Define the inverse transformation
+    rInverse = R.T
+    sInverse = np.diag(np.concatenate([1 / scale, [1]]))
+    tInverse = np.copy(T)
+    tInverse[:, 3] *= -1
     global STC_TO_CCF
-    R = R.T
-    S = np.diag(np.concatenate([1 / scale, [1]]))
-    T[:, 3] *= -1
-    STC_TO_CCF = T @ S @ R
+    STC_TO_CCF = rInverse @ sInverse @ tInverse
 
     return
 
@@ -369,7 +370,7 @@ def transform(points, source='ccf'):
     return transformedPoints
 
 def localizeUnits(
-    workingDirectory,
+    kilosortOutputFolder,
     insertionPoint=None,
     insertionDepth=None,
     insertionAngle=None,
@@ -381,8 +382,8 @@ def localizeUnits(
     """
 
     #
-    if type(workingDirectory) == str:
-        workingDirectory = pl.Path(workingDirectory)
+    if type(kilosortOutputFolder) == str:
+        kilosortOutputFolder = pl.Path(kilosortOutputFolder)
 
     #
     if trajectoryExplorerFile is not None:
@@ -413,12 +414,12 @@ def localizeUnits(
     scalingFactor = electrodeVector / np.linalg.norm(electrodeVector)
 
     # Load the spike clusters data
-    spikeClustersFile = workingDirectory.joinpath('spike_clusters.npy')
+    spikeClustersFile = kilosortOutputFolder.joinpath('spike_clusters.npy')
     if spikeClustersFile.exists():
         spikeClusters = np.load(spikeClustersFile)
 
     # Estimate the distance from the tip of the electrode for each unit
-    templateDepths, spikeDepths = estimateSpikeDepths(workingDirectory)
+    templateDepths, spikeDepths = estimateSpikeDepths(kilosortOutputFolder)
 
     # CCF coordinates for each unit with shape N units x 3 (AP, DV, ML)
     unitCoordinates = list()

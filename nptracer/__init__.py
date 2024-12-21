@@ -124,7 +124,7 @@ def _loadAnnotations():
     if annotationsFile.exists() == False:
         raise Exception('Could not locate annotations file')
     global ANNOTATIONS
-    ANNOTATIONS = np.load(annotationsFile)
+    ANNOTATIONS = np.load(annotationsFile, mmap_mode='r')
     ANNOTATIONS = np.swapaxes(ANNOTATIONS, 1, 2)
 
     return
@@ -139,7 +139,7 @@ def _loadVolume():
     if volumeFile.exists() == False:
         raise Exception('Could not locate annotations file')
     global VOLUME
-    VOLUME = np.load(volumeFile)
+    VOLUME = np.load(volumeFile, mmap_mode='r')
     VOLUME = np.swapaxes(VOLUME, 1, 2)
 
     return
@@ -293,7 +293,7 @@ def estimateSpikeDepths(kilosortOutputFolder):
 
     return templateDepths, spikeDepths
 
-def defineTransformationMatrices(resolution=10):
+def defineTransformationMatrices():
     """
     Compute the transform that converst CCF voxels to stereotaxic coordinates
     (relative to bregma)
@@ -301,17 +301,17 @@ def defineTransformationMatrices(resolution=10):
 
     # Define transformation constants
     bregma = np.array([520, 570.5, 44])
-    scale = np.array([-1.031, 0.952, 0.885]) / (1000 / resolution)
+    scale = np.array([-1.031, 0.952, 0.885]) / 100
     theta = np.radians(5)  # Rotation angle in radians
 
     # Translation matrix to center at bregma
     T = np.eye(4)
-    T[:3, 3] = -np.array(bregma)
+    T[:3, 3] = (-1 * np.array(bregma))
 
     # Scaling matrix to adjust units and reflection
     S = np.diag(np.concatenate([scale, [1]]))
 
-    # Rotation around the y (ML) axis
+    # Rotation around the second axis (ML)
     R = np.array([
         [np.cos(theta), 0, -np.sin(theta), 0],
         [0,             1,  0,             0],
@@ -319,17 +319,17 @@ def defineTransformationMatrices(resolution=10):
         [0,             0,  0,             1],
     ])
 
-    # Define the forward (F) transformation
+    # Define the transformation
     global CCF_TO_STC
-    CCF_TO_STC = T @ S @ R
     CCF_TO_STC = R @ S @ T
 
-    # Define the inverse (B) transformation
+    # Define the inverse transformation
+    rInverse = R.T
+    sInverse = np.diag(np.concatenate([1 / scale, [1]]))
+    tInverse = np.copy(T)
+    tInverse[:, 3] *= -1
     global STC_TO_CCF
-    R = R.T
-    S = np.diag(np.concatenate([1 / scale, [1]]))
-    T[:, 3] *= -1
-    STC_TO_CCF = T @ S @ R
+    STC_TO_CCF = tInverse @ sInverse @ rInverse
 
     return
 
@@ -361,10 +361,10 @@ def transform(points, source='ccf'):
     homogenousPoints = np.hstack((points, np.ones((nPoints, 1))))
 
     # Apply the affine transformation matrix
-    transformedHomogenousPoints = homogenousPoints @ tform.T
+    transformedHomogenousPoints = tform @ homogenousPoints.T
 
     # Extract the transformed [ML, AP, DV] coordinates
-    transformedPoints = transformedHomogenousPoints[:, :3]
+    transformedPoints = transformedHomogenousPoints[:3, :].T
 
     return transformedPoints
 
@@ -388,7 +388,9 @@ def localizeUnits(
     if trajectoryExplorerFile is not None:
         electrodePosition = io.loadmat(trajectoryExplorerFile)['probe_positions_ccf'][0][0]
         B = electrodePosition[:, 0]
+        B[1], B[2] = B[2], B[1] # Re-order AP, ML, DV
         A = electrodePosition[:, 1]
+        A[1], A[2] = A[2], A[1] # Re-order AP, ML, DV
 
     else:
         if insertionPoint is None:
