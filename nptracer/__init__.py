@@ -368,13 +368,10 @@ def transform(points, source='ccf'):
 
     return transformedPoints
 
-def localizeUnits(
+def _localizeUnits(
+    A,
+    B,
     kilosortOutputFolder,
-    insertionPoint=None,
-    insertionDepth=None,
-    insertionAngle=None,
-    trajectoryExplorerFile=None,
-    skullThickness=0.3,
     resolution=10,
     ):
     """
@@ -383,32 +380,6 @@ def localizeUnits(
     #
     if type(kilosortOutputFolder) == str:
         kilosortOutputFolder = pl.Path(kilosortOutputFolder)
-
-    #
-    if trajectoryExplorerFile is not None:
-        electrodePosition = io.loadmat(trajectoryExplorerFile)['probe_positions_ccf'][0][0]
-        B = electrodePosition[:, 0]
-        B[1], B[2] = B[2], B[1] # Re-order AP, ML, DV
-        A = electrodePosition[:, 1]
-        A[1], A[2] = A[2], A[1] # Re-order AP, ML, DV
-
-    else:
-        if insertionPoint is None:
-            raise Exception(f'Must specify insertion point')
-        if insertionDepth is None:
-            raise Exception('Must specify insertion deptth')
-        if insertionAngle is None:
-            raise Exception('Must specify insertion angle')
-        A = np.array(insertionPoint)
-        A[2] += skullThickness
-        B = solveForElectrodeEndpoint(
-            A,
-            insertionDepth,
-            insertionAngle
-        )
-        AB = np.vstack([A, B])
-        AB = transform(AB, source='stc')
-        A, B = map(np.ravel, np.split(AB, 2, axis=0))
 
     #
     electrodeVector = A - B
@@ -423,28 +394,74 @@ def localizeUnits(
     templateDepths, spikeDepths = estimateSpikeDepths(kilosortOutputFolder)
 
     # CCF coordinates for each unit with shape N units x 3 (AP, DV, ML)
-    unitCoordinates = list()
+    points = list()
     for spikeCluster in np.unique(spikeClusters):
         spikeDepth = np.mean(spikeDepths[spikeClusters == spikeCluster])
-        unitCoordinate = B + ((spikeDepth / resolution) * scalingFactor)
-        unitCoordinates.append(unitCoordinate)
-    unitCoordinates = np.array(unitCoordinates)
+        point = B + ((spikeDepth / resolution) * scalingFactor)
+        points.append(point)
+    points = np.array(points)
 
     # Lookup the brain area associated with each coordinate
-    voxelIndices = np.around(unitCoordinates, 0).astype(int)
-    brainStructureIdentities = list()
+    voxelIndices = np.around(points, 0).astype(int)
+    labels = list()
     global ANNOTATIONS
     if ANNOTATIONS is None:
         _loadAnnotations()
     for (i, j, k) in voxelIndices:
-        id = ANNOTATIONS[i, j, k]
-        brainStructureIdentities.append(id)
-    brainStructureIdentities = np.array(brainStructureIdentities)
+        label = ANNOTATIONS[i, j, k]
+        labels.append(label)
+    labels = np.array(labels)
 
     # Convert from CCF voxels to stereotaxic coordinates
-    unitCoordinatesTransformed = transform(
-        unitCoordinates,
+    tranformed = transform(
+        points,
         source='ccf'
     )
 
-    return brainStructureIdentities, unitCoordinates, unitCoordinatesTransformed
+    return labels, points, tranformed
+
+def localizeUnitsWithTrajectoryExplorerFile(
+    kilosortOutputFolder,
+    trajectoryExplorerFile,
+    resolution=10
+    ):
+    """
+    """
+
+    electrodePosition = io.loadmat(trajectoryExplorerFile)['probe_positions_ccf'][0][0]
+    B = electrodePosition[:, 0]
+    B[1], B[2] = B[2], B[1] # Re-order AP, ML, DV
+    A = electrodePosition[:, 1]
+    A[1], A[2] = A[2], A[1] # Re-order AP, ML, DV
+
+    return _localizeUnits(A, B, kilosortOutputFolder, resolution)
+
+def localizeUnitsWithInsertionParameters(
+    kilosortOutputFolder,
+    insertionPoint=None,
+    insertionDepth=None,
+    insertionAngle=None,
+    skullThickness=0.3,
+    resolution=10,
+    ):
+    """
+    """
+
+    if insertionPoint is None:
+        raise Exception(f'Must specify insertion point')
+    if insertionDepth is None:
+        raise Exception('Must specify insertion deptth')
+    if insertionAngle is None:
+        raise Exception('Must specify insertion angle')
+    A = np.array(insertionPoint)
+    A[2] += skullThickness
+    B = solveForElectrodeEndpoint(
+        A,
+        insertionDepth,
+        insertionAngle
+    )
+    AB = np.vstack([A, B])
+    AB = transform(AB, source='stc')
+    A, B = map(np.ravel, np.split(AB, 2, axis=0))
+
+    return _localizeUnits(A, B, kilosortOutputFolder, resolution)
