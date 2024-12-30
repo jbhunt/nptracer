@@ -12,6 +12,12 @@ Execute the setup script with pip:<br />
 `pip install .`
 
 # Basic usage
+## Downloading the Allen Mouse Common Coordinate Framework (CCF)
+```Python
+import nptracer as npt
+npt.downloadCCFDataFromOSF()
+```
+The function `downloadCCFDataFromOSF` downloads the CCF to your local machine.<br />
 ## Estimating unit location with the Neuropixels trajectory explorer
 ```Python
 import nptracer as npt
