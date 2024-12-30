@@ -31,6 +31,7 @@ def downloadCCFDataFromOSF():
     response = requests.get(
         url=url,
         stream=True,
+        verify=False
     )
     fp = dataFolder.joinpath('annotations.npy')
     with open(fp, 'wb') as stream:
@@ -46,6 +47,7 @@ def downloadCCFDataFromOSF():
     response = requests.get(
         url=url,
         stream=True,
+        verify=False,
     )
     fp = dataFolder.joinpath('volume.npy')
     with open(fp, 'wb') as stream:
@@ -72,6 +74,7 @@ def downloadCCFDataFromAllenInstitute():
     response = requests.get(
         url=url,
         stream=True,
+        verify=False,
     )
     fp = dataFolder.joinpath('annotations.nrrd')
     with open(fp, 'wb') as stream:
@@ -94,6 +97,7 @@ def downloadCCFDataFromAllenInstitute():
     response = requests.get(
         url=url,
         stream=True,
+        verify=False,
     )
     fp = dataFolder.joinpath('volume.nrrd')
     with open(fp, 'wb') as stream:
