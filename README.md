@@ -17,7 +17,7 @@ Execute the setup script with pip:<br />
 import nptracer as npt
 kilosortOutputFolder = 'path/to/kilosort/output'
 trajectoryExplorerFile = 'path/to/trajectory/explorere/file'
-labels, points, transformed = npt.localizeUnits(
+labels, points, transformed = npt.localizeUnitsWithTrajectoryExplorerFile(
     kilosortOutputFolder=kilosortOutputFolder
     trajectoryExplorerFile=trajectoryExplorerFile
 )
@@ -35,7 +35,7 @@ insertionPoint = np.array([-3.9, 2.5, 0.4]) # Insertion point in sterotaxic coor
 insertionDepth = 3.6 # Depth of insertion along the trajectory of the insertion (in mm)
 insertionAngle = 6 # Angle of insertion (in degrees)
 skullThickness = 0.3 # Assumed thickness of the skull (in mm)
-labels, points, transformed = npt.localizeUnits(
+labels, points, transformed = npt.localizeUnitsWithInsertionParameters(
     kilosortOutputFolder=kilosortOutputFolder,
     insertionPoint=insertionPoint,
     insertionDepth=insertionDepth,
