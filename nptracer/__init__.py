@@ -14,7 +14,7 @@ ANNOTATIONS = None
 CCF_TO_STC = None
 STC_TO_CCF = None
 
-def downloadCCFDataFromAllenInstitute():
+def downloadCCFDataFromOSF():
     """
     Download the Allen Brain Atlas Common Coordinate Framework volume and
     annotations
@@ -57,7 +57,7 @@ def downloadCCFDataFromAllenInstitute():
 
     return
 
-def downloadCCFDataFromOSF():
+def downloadCCFDataFromAllenInstitute():
     """
     """
 
